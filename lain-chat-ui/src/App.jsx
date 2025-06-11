@@ -3,7 +3,7 @@ import axios from 'axios';
 
 // --- API配置 ---
 // 请确保您的后端服务器正在运行，并根据需要修改此URL
-const API_ENDPOINT = 'http://localhost:3000/chat';
+const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
 
 // --- 主应用组件 ---
 export default function App() {
