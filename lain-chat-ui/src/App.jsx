@@ -48,6 +48,7 @@ const AudioPlayer = ({ audio }) => (
 
 // --- 主应用组件 ---
 export default function App() {
+  const canvasRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
