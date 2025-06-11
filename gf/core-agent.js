@@ -1,16 +1,16 @@
 'use strict';
 
 const OpenAI = require('openai');
-const { tools, availableTools } = require('./tools');
+const { tools, availableTools } = require('../tools');
 const { getLainSystemPromptForAgent } = require('./utils/prompt-templates');
 const memory = require('./memory');
 const profile = require('./profile');
 const botState = require('./bot-state');
 const emotion = require('./services/emotion');
 const tts = require('./services/tts');
-const knowledge = require('./knowledge'); // 修正一：补上遗漏的模块引入
-const { splitMessageInFragments } = require('./utils/text-formatters');
+const knowledge = require('./knowledge');
 const spotify = require('./services/spotify');
+const { splitMessageInFragments } = require('./utils/text-formatters');
 
 // 延迟初始化 OpenAI，避免旧 key 被缓存
 let openai = null;
@@ -44,6 +44,39 @@ function sanitizeForPrompt(data) {
   }
 }
 
+// 辅助函数：创建 Spotify Flex Message
+function createSpotifyFlexMessage(track) {
+  if (!track) return null;
+  return {
+    type: 'flex',
+    altText: `为你找到了歌曲: ${track.name}`,
+    contents: {
+      type: 'bubble',
+      hero: { type: 'image', url: track.albumArt || 'https://scdn.line-apps.com/n/channel_devcenter/img/fx/01_1_movie.png', size: 'full', aspectRatio: '1:1', aspectMode: 'cover' },
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'md',
+        contents: [
+          { type: 'text', text: track.name, weight: 'bold', size: 'xl', wrap: true },
+          {
+            type: 'box', layout: 'vertical',
+            contents: [
+              { type: 'text', text: track.artist, size: 'sm', color: '#666666', wrap: true },
+              { type: 'text', text: track.album, size: 'sm', color: '#aaaaaa', wrap: true },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: 'box', layout: 'vertical',
+        contents: [
+          { type: 'button', action: { type: 'uri', label: '在 Spotify 上播放', uri: track.url }, style: 'primary', color: '#1DB954', height: 'sm' },
+        ],
+      },
+    },
+  };
+}
+
+
 async function processMessage(userId, userInput) {
   if (processingUsers.has(userId)) {
     console.log(`[Concurrency Lock] User ${userId} is already being processed. Ignoring new request.`);
@@ -53,6 +86,7 @@ async function processMessage(userId, userInput) {
   try {
     processingUsers.add(userId);
 
+    // --- 输入验证 ---
     if (!userInput || !userInput.type || !userInput.content) {
       throw new Error('Invalid userInput object: type or content is missing.');
     }
@@ -62,8 +96,26 @@ async function processMessage(userId, userInput) {
     if (userInput.type === 'location' && (!userInput.content.latitude || !userInput.content.longitude)) {
       throw new Error('Invalid location format: latitude or longitude is missing.');
     }
+    
+    // --- “快速通道”处理 Spotify 指令 ---
+    if (userInput.type === 'text') {
+        const spotifyMatch = userInput.content.match(/^(?:播放|搜索歌曲|聴かせて|曲を探して)\s*(.+)$/i);
+        if (spotifyMatch) {
+            const trackName = spotifyMatch[1].trim();
+            const track = await spotify.searchTrack({ trackName });
+            if (track) {
+                const flexMessage = createSpotifyFlexMessage(track);
+                const introText = '...为你找到了一个匹配的音轨。';
+                await memory.appendHistory(userId, { role: 'user', content: userInput.content });
+                await memory.appendHistory(userId, { role: 'assistant', content: `(分享了歌曲: ${track.name}) ${introText}` });
+                return [{ type: 'text', text: introText }, flexMessage];
+            } else {
+                return [{ type: 'text', text: `...在连线中没有找到名为 "${trackName}" 的音轨...` }];
+            }
+        }
+    }
 
-    // --- 获取所有上下文信息 ---
+    // --- 智能通道 ---
     let retrievedKnowledge = '';
     if (userInput.type === 'text') {
       retrievedKnowledge = await knowledge.queryKnowledgeBase(userInput.content);
@@ -71,9 +123,7 @@ async function processMessage(userId, userInput) {
     
     let toneResult;
     try {
-      toneResult = userInput.type === 'text'
-        ? await emotion.analyzeEmotion(userInput.content)
-        : { emotion: 'neutral', score: 0 };
+      toneResult = userInput.type === 'text' ? await emotion.analyzeEmotion(userInput.content) : { emotion: 'neutral', score: 0 };
       if (!toneResult || typeof toneResult.emotion !== 'string' || typeof toneResult.score !== 'number') {
         toneResult = { emotion: 'neutral', score: 0 };
       }
@@ -82,74 +132,26 @@ async function processMessage(userId, userInput) {
       toneResult = { emotion: 'neutral', score: 0 };
     }
 
-    // 分离同步与异步调用，不再使用错误的 Promise.all
     const history = memory.getHistory(userId);
     const userProfile = profile.getProfile(userId);
     const botCurrentState = botState.getBotState();
     
     const sanitizedProfileJSON = sanitizeForPrompt(userProfile);
-    const systemPrompt = getLainSystemPromptForAgent({
-      sanitizedProfileJSON,
-      botState: botCurrentState,
-      toneResult,
-      retrievedKnowledge
-    });
-
-    // 修正二：处理 Spotify 指令 —— 只针对文本输入
-    let spotifyMatch = null;
-    if (userInput.type === 'text') {
-      spotifyMatch = userInput.content.match(/^(?:播放|搜索歌曲|聴かせて|曲を探して)\s*(.+)$/i);
-    }
-    if (spotifyMatch) {
-      const trackName = spotifyMatch[1].trim();
-      const track = await spotify.searchTrack({ trackName });
-      if (track) {
-        const introText = '...为你找到了一个匹配的音轨。';
-        // 核心修改：返回一个特殊类型的对象
-        return [{
-          type: 'spotify_track',
-          introText: introText,
-          data: track
-        }];
-      } else {
-        return [{ type: 'text', text: `...在连线中没有找到名为 "${trackName}" 的音轨...` }];
-      }
-    }
-
+    const systemPrompt = getLainSystemPromptForAgent({ userProfile: sanitizedProfileJSON, botState: botCurrentState, toneResult });
+    
     let userMessageForAI;
     if (userInput.type === 'image') {
-      userMessageForAI = {
-        role: 'user',
-        content: [
-          { type: 'text', text: IMAGE_ANALYSIS_PROMPT },
-          { type: 'image_url', image_url: { url: userInput.content } }
-        ]
-      };
+      userMessageForAI = { role: 'user', content: [{ type: 'text', text: IMAGE_ANALYSIS_PROMPT }, { type: 'image_url', image_url: { url: userInput.content } }] };
     } else if (userInput.type === 'location') {
-      userMessageForAI = {
-        role: 'user',
-        content: `用户当前位于 纬度: ${userInput.content.latitude}, 经度: ${userInput.content.longitude}。请查找此地附近的餐厅和便利店。`
-      };
-    } else { // 文本输入
-      userMessageForAI = {
-        role: 'user',
-        content: userInput.content
-      };
+      userMessageForAI = { role: 'user', content: `用户当前位于 纬度: ${userInput.content.latitude}, 经度: ${userInput.content.longitude}。请查找此地附近的餐厅和便利店。` };
+    } else {
+      userMessageForAI = { role: 'user', content: userInput.content };
     }
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history,
-      userMessageForAI
-    ];
+    
+    const messages = [{ role: 'system', content: systemPrompt }, ...history, userMessageForAI];
 
     const response = await withTimeout(
-      getOpenAIInstance().chat.completions.create({
-        model: 'gpt-4o',
-        messages,
-        tools,
-        tool_choice: 'auto'
-      })
+      getOpenAIInstance().chat.completions.create({ model: 'gpt-4o', messages, tools, tool_choice: 'auto' })
     );
     let responseMessage = response?.choices?.[0]?.message;
 
@@ -168,28 +170,14 @@ async function processMessage(userId, userInput) {
           const functionArgs = JSON.parse(toolCall.function.arguments);
           const toolContext = { userId };
           const functionResponse = await functionToCall(functionArgs, toolContext);
-          messages.push({
-            tool_call_id: toolCall.id,
-            role: 'tool',
-            name: functionName,
-            content: JSON.stringify(functionResponse)
-          });
+          messages.push({ tool_call_id: toolCall.id, role: 'tool', name: functionName, content: JSON.stringify(functionResponse) });
         } catch (toolError) {
           console.error(`❌ Tool ${functionName} execution failed:`, toolError);
-          messages.push({
-            tool_call_id: toolCall.id,
-            role: 'tool',
-            name: functionName,
-            content: JSON.stringify({ error: toolError.message })
-          });
+          messages.push({ tool_call_id: toolCall.id, role: 'tool', name: functionName, content: JSON.stringify({ error: toolError.message }) });
         }
       }
       const finalResponse = await withTimeout(
-        getOpenAIInstance().chat.completions.create({
-          model: 'gpt-4o',
-          messages,
-          max_tokens: 400
-        })
+        getOpenAIInstance().chat.completions.create({ model: 'gpt-4o', messages, max_tokens: 400 })
       );
       responseMessage = finalResponse?.choices?.[0]?.message || { content: '... echo lost ...' };
     }
@@ -207,18 +195,13 @@ async function processMessage(userId, userInput) {
         const fileName = `audio-${userId}-${Date.now()}.mp3`;
         const publicUrl = await tts.uploadToStorage(audioBuffer, fileName);
         const estimatedDuration = Math.max(1000, Math.min(replyText.length * 150, 60000));
-        return [{
-          type: 'audio',
-          originalContentUrl: publicUrl,
-          duration: estimatedDuration
-        }];
+        return [{ type: 'audio', originalContentUrl: publicUrl, duration: estimatedDuration }];
       } catch (ttsError) {
         console.error('❌ TTS or GCS upload failed, falling back to text reply.', ttsError);
       }
     }
     
-    return splitMessageInFragments(replyText)
-      .map(r => ({ type: 'text', text: r }));
+    return splitMessageInFragments(replyText).map(r => ({ type: 'text', text: r }));
 
   } catch (error) {
     console.error('❌ Agent Core Error:', error);
