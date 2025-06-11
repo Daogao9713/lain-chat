@@ -1,7 +1,7 @@
 'use strict';
 
 const OpenAI = require('openai');
-const { tools, availableTools } = require('../tools');
+const { tools, availableTools } = require('./tools');
 const { getLainSystemPromptForAgent } = require('./utils/prompt-templates');
 const memory = require('./memory');
 const profile = require('./profile');
