@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 // --- API 配置 ---
-// 核心修正：从环境变量中读取后端API地址，并提供一个本地开发的备用地址
-const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000/chat';
+// 解决方案一：使用 Vite 标准的环境变量，Vercel会自动注入
+const API_BASE_URL = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
+const CHAT_API_URL = `${API_BASE_URL}/chat`;
 
-// --- 子组件：打字机效果文本 ---
+// --- 子组件 (Spotify, Audio, Typewriter) ---
 const TypewriterText = ({ text }) => {
   const [displayedText, setDisplayedText] = useState('');
   useEffect(() => {
@@ -25,7 +26,6 @@ const TypewriterText = ({ text }) => {
   return <p style={{ margin: 0 }}>{displayedText}<span className="text-cursor"></span></p>;
 };
 
-// --- 子组件：Spotify卡片 ---
 const SpotifyCard = ({ track }) => (
   <div className="spotify-card">
     <img src={track.albumArt} alt={track.name} className="album-art" />
@@ -39,7 +39,6 @@ const SpotifyCard = ({ track }) => (
   </div>
 );
 
-// --- 子组件：音频播放器 ---
 const AudioPlayer = ({ audio }) => (
   <div className="audio-player">
     <audio controls controlsList="nodownload noplaybackrate" src={audio.url}>
@@ -48,20 +47,31 @@ const AudioPlayer = ({ audio }) => (
   </div>
 );
 
+
 // --- 主应用组件 ---
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userId, setUserId] = useState('');
+  const [systemStatus, setSystemStatus] = useState('initializing...');
   const chatEndRef = useRef(null);
   const canvasRef = useRef(null);
 
   // 初始化
   useEffect(() => {
+    console.log("React App Initialized.");
+    console.log("API Endpoint in use:", CHAT_API_URL);
+
+    if (!import.meta.env.VITE_API_ENDPOINT && window.location.hostname !== 'localhost') {
+        setSystemStatus('Error: VITE_API_ENDPOINT is not configured.');
+    } else {
+        setSystemStatus('... ready ...');
+    }
+
     const webUserId = `web_user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setUserId(webUserId);
-    setMessages([{ type: 'text', sender: 'lain', content: '... a new connection.', id: `msg-${Date.now()}` }]);
+    setMessages([{ type: 'text', sender: 'lain', content: '... present day, present time. ...', id: `msg-${Date.now()}` }]);
   }, []);
 
   // 自动滚动
@@ -72,7 +82,9 @@ export default function App() {
   // 背景动画
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    // 解决方案四：对 canvas 进行更严格的检查
+    if (!canvas || typeof canvas.getContext !== 'function') return;
+    
     const ctx = canvas.getContext('2d');
     let animationFrameId;
     const resizeCanvas = () => {
@@ -89,6 +101,7 @@ export default function App() {
       size: Math.random() * 1.5 + 0.5,
     }));
     const render = () => {
+      if(!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = 'rgba(140, 115, 255, 0.5)';
       particles.forEach(p => {
@@ -114,14 +127,27 @@ export default function App() {
     const currentInput = input;
     setInput('');
     setIsLoading(true);
+    setSystemStatus('connecting to the Wired...');
     try {
-      const response = await axios.post(API_ENDPOINT, { userId, message: currentInput });
-      const repliesFromServer = Array.isArray(response.data.replies) ? response.data.replies : [response.data.replies];
-      const formattedReplies = repliesFromServer.map((reply, index) => ({ ...reply, sender: 'lain', id: `msg-lain-${Date.now()}-${index}` }));
-      setMessages(prev => [...prev, ...formattedReplies]);
+      const response = await axios.post(CHAT_API_URL, { userId, message: currentInput });
+      const repliesFromServer = Array.isArray(response.data.replies) ? response.data.replies : [];
+      if (repliesFromServer.length > 0) {
+        const formattedReplies = repliesFromServer.map((reply, index) => ({ ...reply, sender: 'lain', id: `msg-lain-${Date.now()}-${index}` }));
+        setMessages(prev => [...prev, ...formattedReplies]);
+        setSystemStatus('... connected ...');
+      } else {
+         setSystemStatus('... silence ...');
+      }
     } catch (error) {
       console.error("❌ API请求失败:", error);
-      const errorReply = { type: 'text', sender: 'lain', content: '... connection failed ...', id: `msg-error-${Date.now()}` };
+      let errorMessage = '... connection failed ...';
+      if (error.code === 'ERR_NETWORK') {
+        errorMessage = 'Network Error: Cannot reach server. Check backend status and CORS policy.';
+      } else if (error.response) {
+        errorMessage = `Server Error: ${error.response.status} ${error.response.data?.error || ''}`;
+      }
+      setSystemStatus(errorMessage);
+      const errorReply = { type: 'text', sender: 'lain', content: errorMessage, id: `msg-error-${Date.now()}` };
       setMessages(prev => [...prev, errorReply]);
     } finally {
       setIsLoading(false);
@@ -176,8 +202,11 @@ export default function App() {
         .play-button { display: block; margin-top: 0.5rem; padding: 0.5rem; background-color: #1DB954; color: #fff; text-align: center; text-decoration: none; font-size: 0.8rem; font-weight: bold; border-radius: 20px; transition: background-color 0.2s; }
         .play-button:hover { background-color: #1ed760; }
         .audio-player audio { width: 100%; max-width: 280px; filter: invert(1) sepia(1) saturate(0.5) hue-rotate(200deg); }
+        .system-status { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(255, 0, 0, 0.2); border: 1px solid red; color: #ffc4c4; padding: 5px 10px; font-size: 12px; z-index: 100; }
       `}</style>
       <div className="main-container">
+        {systemStatus.toLowerCase().includes('error') && <div className="system-status">{systemStatus}</div>}
+        
         <div className="chat-area">
           {messages.map((msg) => (
             <div key={msg.id} className={`message-bubble ${msg.sender}`}>
@@ -195,7 +224,7 @@ export default function App() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder=""
+            placeholder={isLoading ? '...' : systemStatus}
             disabled={isLoading}
           />
           {isLoading ? (
