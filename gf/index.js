@@ -4,40 +4,25 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const dotenv = require('dotenv');
 const axios = require('axios');
-const helmet = require('helmet');
 const cors = require('cors');
+const helmet = require('helmet');
 const coreAgent = require('./core-agent'); 
 const memory = require('./memory');
 const profile = require('./profile');
 const calendar = require('./services/calendar');
 const botState = require('./bot-state');
-const { createSpotifyFlexMessage } = require('./utils/flex-messages'); // 从正确的文件中引入
+const { createSpotifyFlexMessage } = require('./utils/flex-messages');
 
 dotenv.config();
 
-// ▼▼▼ 优化一：只在开发环境打印诊断日志 ▼▼▼
-if (process.env.NODE_ENV === 'development') {
-    console.log('--- .env File Loading Diagnostics (Dev Mode) ---');
-    console.log('Maps API Key Loaded:', !!process.env.GOOGLE_MAPS_API_KEY);
-    console.log('--- Diagnostics End ---');
-}
-
-const lineConfig = { 
-    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, 
-    channelSecret: process.env.LINE_CHANNEL_SECRET 
-};
+const lineConfig = { channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, channelSecret: process.env.LINE_CHANNEL_SECRET };
 const lineClient = new line.Client(lineConfig);
 const app = express();
 
-// --- 中间件设置 ---
 app.use(helmet());
-app.use(cors()); // 启用 CORS
+app.use(cors());
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
-
-// 定义根路由，只保留一次
-app.get('/', (req, res) => { 
-    res.send('CONNCECTINGGG～'); 
-});
+app.get('/', (req, res) => { res.send('CONNCECTINGGG～'); });
 
 // ▼▼▼ 优化六：新增健康检查路由 ▼▼▼
 app.get('/health', (req, res) => {
@@ -165,41 +150,65 @@ app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
 
 // --- Web/小程序路由 ---
 app.post(['/wx-chat', '/chat'], async (req, res) => {
-  // TODO: 在这里为生产环境加入 API Key 鉴权或速率限制逻辑
   try {
     const { userId, message } = req.body;
-    if (!userId || !message) { 
-      return res.status(400).json({ error: 'Missing userId or message' }); 
+    if (!userId || !message) {
+      return res.status(400).json({ error: 'Missing userId or message' });
     }
     const userInput = { type: 'text', content: message };
+    
+    // 1. 调用核心逻辑，获取一个包含多种消息类型的标准回复数组
     const replies = await coreAgent.processMessage(userId, userInput);
-    const replyText = replies.find(r => r.type === 'text')?.text || '...';
-    res.json({ reply: replyText });
+
+    // 2. 将标准回复数组适配为前端Web客户端需要的格式
+    const formattedReplies = replies.map(reply => {
+      // 文本消息
+      if (reply.type === 'text') {
+        return { type: 'text', content: reply.text };
+      }
+      // 语音消息
+      if (reply.type === 'audio') {
+        return { type: 'audio', content: { url: reply.originalContentUrl, duration: reply.duration } };
+      }
+      // Spotify 特殊对象（由 core-agent 返回）
+      if (reply.type === 'spotify_track') {
+        // 直接将数据包装成前端需要的格式
+        return { type: 'spotify', content: reply.data };
+      }
+      // 对于 LINE Flex Message (由 createSpotifyFlexMessage 生成) 的兼容处理
+      if (reply.type === 'flex' && reply.altText.includes('为你找到了歌曲')) {
+        const track = reply.contents?.body?.contents?.[0];
+        const artist = reply.contents?.body?.contents?.[1]?.contents?.[0];
+        return {
+          type: 'spotify',
+          content: {
+            name: track?.text || 'Unknown Track',
+            artist: artist?.text || 'Unknown Artist',
+            albumArt: reply.contents?.hero?.url,
+            url: reply.contents?.footer?.contents?.[0]?.action?.uri,
+          }
+        };
+      }
+      return null; // 过滤掉其他不兼容的类型
+    }).filter(Boolean);
+    
+    // 3. 返回一个包含格式化后消息数组的JSON
+    res.json({ replies: formattedReplies });
+
   } catch (err) {
     console.error('❌ API Chat Error:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// --- 服务器启动与优雅关停 ---
+
 async function startServer() {
   await memory.initialize();
   await profile.initialize();
   await calendar.initialize();
   await botState.initialize();
-  const server = app.listen(process.env.PORT || 3000, () => {
+  app.listen(process.env.PORT || 3000, () => {
     console.log(`CONNECTING WORLD ${process.env.PORT || 3000}`);
   });
-
-  // ▼▼▼ 优化六：新增 SIGINT 清理，实现优雅关停 ▼▼▼
-  process.on('SIGINT', () => {
-      console.log('\n[INFO] Received SIGINT (Ctrl+C). Shutting down gracefully...');
-      server.close(() => {
-          console.log('[INFO] HTTP server closed.');
-          // 在这里可以加入关闭数据库连接等清理操作
-          process.exit(0);
-      });
-  });
 }
-
 startServer();
