@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-// --- API 配置 ---
-// 解决方案一：使用 Vite 标准的环境变量，Vercel会自动注入
-const API_BASE_URL = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
-const CHAT_API_URL = `${API_BASE_URL}/chat`;
+const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
+const CHAT_API_URL = `${API_ENDPOINT}/chat`;
 
 // --- 子组件 (Spotify, Audio, Typewriter) ---
 const TypewriterText = ({ text }) => {
@@ -56,7 +54,35 @@ export default function App() {
   const [userId, setUserId] = useState('');
   const [systemStatus, setSystemStatus] = useState('initializing...');
   const chatEndRef = useRef(null);
-  const canvasRef = useRef(null);
+  const mainContainerRef = useRef(null); // 用于动态设置高度
+
+  // ▼▼▼ 核心修正：监听并设置动态视窗高度 ▼▼▼
+  useEffect(() => {
+    const mainContainer = mainContainerRef.current;
+    if (!mainContainer) return;
+
+    const setRealViewportHeight = () => {
+      // 使用 window.innerHeight 作为最可靠的、包含UI栏的实际高度
+      mainContainer.style.height = `${window.innerHeight}px`;
+    };
+
+    // 页面加载和窗口大小变化时都设置一次
+    setRealViewportHeight();
+    window.addEventListener('resize', setRealViewportHeight);
+
+    // 对于移动端，visualViewport API 更能精确地处理虚拟键盘
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setRealViewportHeight);
+    }
+    
+    return () => {
+      window.removeEventListener('resize', setRealViewportHeight);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', setRealViewportHeight);
+      }
+    };
+  }, []);
+
 
   // 初始化
   useEffect(() => {
