@@ -1,0 +1,37 @@
+{
+  "name": "lain-bot-project",
+  "version": "1.0.0",
+  "description": "An AI agent based on Lain Iwakura",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/storage": "^7.11.0",
+    "@google-cloud/text-to-speech": "^5.3.0",
+    "@googlemaps/google-maps-services-js": "^3.4.0",
+    "@line/bot-sdk": "^9.2.2",
+    "@nlpjs/basic": "^5.0.0-alpha.5",
+    "@nlpjs/core": "^5.0.0-alpha.5",
+    "@nlpjs/lang-zh": "^5.0.0-alpha.5",
+    "@nlpjs/nlp": "^5.0.0-alpha.5",
+    "axios": "^1.9.0",
+    "chromadb": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^8.1.0",
+    "lowdb": "^7.0.1",
+    "newsapi": "^2.4.1",
+    "node-cron": "^4.1.0",
+    "nodemon": "^3.1.2",
+    "openai": "^4.51.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

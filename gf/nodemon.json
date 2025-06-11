@@ -1,0 +1,12 @@
+{
+  "watch": ["."],
+  "ext": "js,json,mjs,cjs,ts",
+  "ignore": [
+    "node_modules",
+    "db-*.json",
+    "*.log"
+  ],
+  "exec": "node index.js",
+  "verbose": true,
+  "delay": "1000"
+}
