@@ -1,14 +1,11 @@
 'use strict';
 
-// --- 核心依赖 ---
 const express = require('express');
 const line = require('@line/bot-sdk');
 const dotenv = require('dotenv');
 const axios = require('axios');
 const helmet = require('helmet');
-const cors = require('cors'); // 我们将为它提供更详细的配置
-
-// --- 自定义模块 ---
+const cors = require('cors'); 
 const coreAgent = require('./core-agent'); 
 const memory = require('./memory');
 const profile = require('./profile');
@@ -16,7 +13,6 @@ const calendar = require('./services/calendar');
 const botState = require('./bot-state');
 const { createSpotifyFlexMessage } = require('./utils/flex-messages');
 
-// --- 初始化配置 ---
 dotenv.config();
 
 const lineConfig = { channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, channelSecret: process.env.LINE_CHANNEL_SECRET };
@@ -24,36 +20,41 @@ const lineClient = new line.Client(lineConfig);
 const app = express();
 
 
-// ▼▼▼ 核心修正：配置生产级的CORS选项 ▼▼▼
+// ▼▼▼ 核心修正：配置生产级的、动态的CORS选项 ▼▼▼
 
-// 1. 定义允许访问您后端的来源白名单
-const allowedOrigins = [
-  'https://lain-chat.vercel.app', // 您的Vercel前端主地址
-  'http://localhost:5173',          // 本地开发时Vite的常见端口
-  'http://localhost:4173',          // npm run preview 的常见端口
-];
-
-// 动态判断，如果Vercel提供了预览部署的URL，也加入白名单
-if (process.env.VERCEL_URL) {
-  allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
-  allowedOrigins.push(`https://lain-chat-l36iktj5w-gaoyuns-projects.vercel.app`); // 从您的日志中提取的预览地址
-}
-
-// 2. 创建详细的CORS配置
 const corsOptions = {
   origin: function (origin, callback) {
-    // 允许来自白名单的请求，以及非浏览器请求（如Postman）
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    // 如果请求没有来源（例如服务器间调用或Postman），则允许
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // 定义一个允许的域名后缀列表
+    const allowedDomainSuffixes = ['.vercel.app', 'localhost'];
+    
+    let isAllowed = false;
+    try {
+        const hostname = new URL(origin).hostname;
+        // 检查请求来源的域名是否以我们允许的后缀结尾
+        if (allowedDomainSuffixes.some(suffix => hostname.endsWith(suffix))) {
+            isAllowed = true;
+        }
+    } catch(e) {
+        isAllowed = false;
+    }
+
+    if (isAllowed) {
       callback(null, true);
     } else {
       console.warn(`CORS blocked for origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // 允许的HTTP方法
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   credentials: true,
-  optionsSuccessStatus: 200 // 一些旧浏览器对204有问题，200更兼容
+  optionsSuccessStatus: 200
 };
+
 
 app.use(helmet());
 app.use(cors(corsOptions));
