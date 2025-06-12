@@ -3125,5 +3125,8 @@
         "url": "https://github.com/sponsors/sindresorhus"
       }
     }
+  },
+  "dependencies": {
+    "tone": "^15.1.22"
   }
 }
