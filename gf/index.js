@@ -4,8 +4,9 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const dotenv = require('dotenv');
 const axios = require('axios');
-const cors = require('cors');
 const helmet = require('helmet');
+const cors = require('cors'); // 我们将为它提供更详细的配置
+
 const coreAgent = require('./core-agent'); 
 const memory = require('./memory');
 const profile = require('./profile');
@@ -19,8 +20,32 @@ const lineConfig = { channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, 
 const lineClient = new line.Client(lineConfig);
 const app = express();
 
+// ▼▼▼ 核心修正：配置生产级的CORS选项 ▼▼▼
+
+// 1. 定义允许访问您后端的来源列表
+const allowedOrigins = [
+  'https://lain-chat.vercel.app', // 您的Vercel前端地址
+  'http://localhost:5173',          // 本地开发时Vite的常见端口
+  'http://localhost:3000',          // 其他本地开发端口
+];
+
+// 2. 创建详细的CORS配置
+const corsOptions = {
+  origin: function (origin, callback) {
+    // 允许来自白名单的请求，以及非浏览器请求（如服务器间调用、Postman等）
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // 允许的HTTP方法
+  credentials: true, // 如果未来需要携带cookie，则设为true
+  optionsSuccessStatus: 204 // 预检请求成功后返回204状态码
+};
+
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.get('/', (req, res) => { res.send('CONNCECTINGGG～'); });
 
@@ -207,8 +232,16 @@ async function startServer() {
   await profile.initialize();
   await calendar.initialize();
   await botState.initialize();
-  app.listen(process.env.PORT || 3000, () => {
+  const server = app.listen(process.env.PORT || 3000, () => {
     console.log(`CONNECTING WORLD ${process.env.PORT || 3000}`);
   });
+  process.on('SIGINT', () => {
+      console.log('\n[INFO] Received SIGINT (Ctrl+C). Shutting down gracefully...');
+      server.close(() => {
+          console.log('[INFO] HTTP server closed.');
+          process.exit(0);
+      });
+  });
 }
+
 startServer();
