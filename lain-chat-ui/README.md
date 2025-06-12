@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
@@ -11,20 +10,3 @@ Currently, two official plugins are available:
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-=======
-# 🧠 Lain Chat UI + Backend
-
-This project contains:
-
-- `lain-web/`: The frontend (React + Vite) styled as a CRT cyberpunk terminal
-- `gf/`: The backend (Node.js + Express + OpenAI SDK with tool calls)
-
-## 🚀 How to Run
-
-### Frontend (`lain-web`)
-
-```bash
-cd lain-web
-npm install
-npm run dev
->>>>>>> 8968e01e8c7ab49f8254bdd593b98589877f7311
