@@ -1,5 +1,6 @@
 'use strict';
 
+// --- 核心依赖 ---
 const express = require('express');
 const line = require('@line/bot-sdk');
 const dotenv = require('dotenv');
@@ -7,6 +8,7 @@ const axios = require('axios');
 const helmet = require('helmet');
 const cors = require('cors'); // 我们将为它提供更详细的配置
 
+// --- 自定义模块 ---
 const coreAgent = require('./core-agent'); 
 const memory = require('./memory');
 const profile = require('./profile');
@@ -14,34 +16,43 @@ const calendar = require('./services/calendar');
 const botState = require('./bot-state');
 const { createSpotifyFlexMessage } = require('./utils/flex-messages');
 
+// --- 初始化配置 ---
 dotenv.config();
 
 const lineConfig = { channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN, channelSecret: process.env.LINE_CHANNEL_SECRET };
 const lineClient = new line.Client(lineConfig);
 const app = express();
 
+
 // ▼▼▼ 核心修正：配置生产级的CORS选项 ▼▼▼
 
-// 1. 定义允许访问您后端的来源列表
+// 1. 定义允许访问您后端的来源白名单
 const allowedOrigins = [
-  'https://lain-chat.vercel.app', // 您的Vercel前端地址
+  'https://lain-chat.vercel.app', // 您的Vercel前端主地址
   'http://localhost:5173',          // 本地开发时Vite的常见端口
-  'http://localhost:3000',          // 其他本地开发端口
+  'http://localhost:4173',          // npm run preview 的常见端口
 ];
+
+// 动态判断，如果Vercel提供了预览部署的URL，也加入白名单
+if (process.env.VERCEL_URL) {
+  allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
+  allowedOrigins.push(`https://lain-chat-l36iktj5w-gaoyuns-projects.vercel.app`); // 从您的日志中提取的预览地址
+}
 
 // 2. 创建详细的CORS配置
 const corsOptions = {
   origin: function (origin, callback) {
-    // 允许来自白名单的请求，以及非浏览器请求（如服务器间调用、Postman等）
+    // 允许来自白名单的请求，以及非浏览器请求（如Postman）
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.warn(`CORS blocked for origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // 允许的HTTP方法
-  credentials: true, // 如果未来需要携带cookie，则设为true
-  optionsSuccessStatus: 204 // 预检请求成功后返回204状态码
+  credentials: true,
+  optionsSuccessStatus: 200 // 一些旧浏览器对204有问题，200更兼容
 };
 
 app.use(helmet());
