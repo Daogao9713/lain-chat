@@ -79,10 +79,9 @@ const useChatManager = () => {
     try {
       const savedMessages = localStorage.getItem('lain_chat_history');
       const parsed = savedMessages ? JSON.parse(savedMessages) : [];
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [{ type: 'text', sender: 'lain', content: '... a new connection.', id: `msg-${Date.now()}` }];
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [{ type: 'text', sender: 'lain', content: '... a new connection.', id: `lain-msg-${Date.now()}` }];
     } catch (error) {
-      console.error("LocalStorage read error:", error);
-      return [{ type: 'text', sender: 'lain', content: '... memory error ...', id: `msg-err-${Date.now()}` }];
+      return [{ type: 'text', sender: 'lain', content: '... memory error ...', id: `error-msg-${Date.now()}` }];
     }
   });
 
@@ -110,34 +109,34 @@ const useChatManager = () => {
 
   const handleSend = async (input) => {
     if (!input.trim() || isLoading) return;
-    
-    const userMessage = { type: 'text', sender: 'user', content: input, id: `msg-user-${Date.now()}` };
+
+    // 1. 立即创建并显示用户消息
+    const userMessage = { type: 'text', sender: 'user', content: input, id: `user-msg-${Date.now()}` };
     setMessages(prevMessages => [...prevMessages, userMessage]);
     
     setIsLoading(true);
 
     try {
+      // 2. 发送API请求
       const response = await axios.post(CHAT_API_URL, { userId, message: input });
       const repliesFromServer = Array.isArray(response.data.replies) ? response.data.replies : [];
       
+      // 3. 将AI的回复添加到UI
       const formattedReplies = repliesFromServer.map((reply, index) => ({
         ...reply,
         sender: 'lain',
-        id: `msg-lain-${Date.now()}-${index}`
+        id: `lain-msg-${Date.now()}-${index}`
       }));
       setMessages(prevMessages => [...prevMessages, ...formattedReplies]);
 
     } catch (error) {
       let errorMessage = '... connection failed ...';
-      if (error.response) {
-        errorMessage = `[${error.response.status}] ${error.response.data?.error || 'Server Error'}`;
-      } else if (error.request) {
-        errorMessage = '... no signal from the Wired. (Network Error)';
-      } else {
-        errorMessage = `... a bug in the system. (${error.message})`;
-      }
+      if (error.response) { errorMessage = `[${error.response.status}] ${error.response.data?.error || 'Server Error'}`; }
+      else if (error.request) { errorMessage = '... no signal from the Wired. (Network Error)'; }
+      else { errorMessage = `... a bug in the system. (${error.message})`; }
+      
       console.error("❌ API请求失败:", error);
-      const errorReply = { type: 'text', sender: 'lain', content: errorMessage, id: `msg-error-${Date.now()}` };
+      const errorReply = { type: 'text', sender: 'lain', content: errorMessage, id: `error-msg-${Date.now()}` };
       setMessages(prevMessages => [...prevMessages, errorReply]);
     } finally {
       setIsLoading(false);
@@ -232,7 +231,6 @@ const AudioPlayer = ({ audio }) => (
 const AsciiArt = () => {
   const [asciiFace, setAsciiFace] = useState(ASCII_FACES[0]);
   const [isBlinking, setIsBlinking] = useState(false);
-
   useEffect(() => {
     const faceInterval = setInterval(() => {
         setIsBlinking(true);
@@ -240,9 +238,8 @@ const AsciiArt = () => {
         if (Math.random() < 0.15) {
             setAsciiFace(prev => {
                 let newIndex;
-                do {
-                    newIndex = Math.floor(Math.random() * ASCII_FACES.length);
-                } while (ASCII_FACES[newIndex] === prev && ASCII_FACES.length > 1);
+                do { newIndex = Math.floor(Math.random() * ASCII_FACES.length); }
+                while (ASCII_FACES[newIndex] === prev && ASCII_FACES.length > 1);
                 return ASCII_FACES[newIndex];
             });
         }
@@ -257,18 +254,12 @@ const ChatArea = ({ messages }) => {
   const chatAreaRef = useRef(null);
   
   const messagesWithDateSeparators = messages.reduce((acc, msg, index) => {
-    if(!msg.id) return acc;
-    const msgDate = new Date(parseInt(msg.id.split('-')[1]));
-    if(isNaN(msgDate)) return acc;
-    
-    const currentDate = msgDate.toLocaleDateString();
-    const prevMsg = acc.findLast(m => m.id?.startsWith('msg-'));
-    let prevDate = null;
-    if(prevMsg){
-        const prevMsgDate = new Date(parseInt(prevMsg.id.split('-')[1]));
-        if(!isNaN(prevMsgDate)) prevDate = prevMsgDate.toLocaleDateString();
-    }
-
+    if (!msg || typeof msg.id !== 'string') return acc;
+    const parts = msg.id.split('-');
+    const timestamp = parseInt(parts[parts.length - 1]);
+    if (isNaN(timestamp)) return acc;
+    const currentDate = new Date(timestamp).toLocaleDateString();
+    const prevDate = index > 0 ? new Date(parseInt(messages[index - 1].id.split('-').pop())).toLocaleDateString() : null;
     if (currentDate !== prevDate) {
       acc.push({ type: 'date_separator', content: currentDate, id: `date-${currentDate}` });
     }
@@ -283,12 +274,12 @@ const ChatArea = ({ messages }) => {
     const handleScroll = () => {
       const messageNodes = Array.from(chatArea.children);
       const viewHeight = chatArea.clientHeight;
-      for(let i = 0; i < messageNodes.length - 5; i++) {
-        const msgTop = messageNodes[i].getBoundingClientRect().top;
-        const blurAmount = Math.max(0, 1 - (msgTop / viewHeight) * 1.2);
-        if (messageNodes[i].style) {
-           messageNodes[i].style.filter = `blur(${blurAmount * 2}px)`;
-           messageNodes[i].style.opacity = `${1 - blurAmount * 0.7}`;
+      for (let i = 0; i < messageNodes.length - 5; i++) {
+        if (messageNodes[i].classList.contains('message-bubble-wrapper')) {
+            const msgTop = messageNodes[i].getBoundingClientRect().top;
+            const blurAmount = Math.max(0, 1 - (msgTop / viewHeight) * 1.2);
+            messageNodes[i].style.filter = `blur(${blurAmount * 2}px)`;
+            messageNodes[i].style.opacity = `${1 - blurAmount * 0.7}`;
         }
       }
     };
@@ -298,11 +289,11 @@ const ChatArea = ({ messages }) => {
   }, [messages]);
 
   const renderMessageContent = (msg) => {
+    if (!msg) return null;
     if (msg.type === 'date_separator') return <div className="date-separator">{msg.content}</div>;
     if (msg.type === 'spotify') return <SpotifyCard track={msg.content} />;
     if (msg.type === 'audio') return <AudioPlayer audio={msg.content} />;
     if (msg.type === 'tool_start') return <ToolCallVisualizer toolCall={msg.content} />;
-
     return msg.sender === 'user' 
       ? <p style={{ margin: 0 }}>{msg.content}</p> 
       : <EmergingText text={msg.content} />;
@@ -311,10 +302,8 @@ const ChatArea = ({ messages }) => {
   return (
     <div ref={chatAreaRef} className="chat-area">
       {messagesWithDateSeparators.map((msg) => (
-        <div key={msg.id} className={`message-bubble-wrapper ${msg.type === 'date_separator' ? 'separator-wrapper' : ''}`}>
-          <div className={`message-bubble ${msg.sender} ${msg.type}`}>
-            {renderMessageContent(msg)}
-          </div>
+        <div key={msg.id} className={`message-bubble-wrapper ${msg.type}`}>
+          {renderMessageContent(msg)}
         </div>
       ))}
     </div>
