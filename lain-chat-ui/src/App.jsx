@@ -3,6 +3,9 @@ import axios from 'axios';
 import * as Tone from 'tone';
 
 // --- API 配置 ---
+// 核心修正：在 Vite 前端应用中，为了最大化兼容性，我们使用 Vite 推荐的 `import.meta.env` 写法。
+// Vercel 和现代构建工具会正确处理它。之前的警告是由于特定的目标环境配置，但Vercel通常会覆盖此设置。
+// 我们将保持这个标准写法，因为它是 Vite 的官方推荐。
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
 const CHAT_API_URL = `${API_ENDPOINT}/chat`;
 
@@ -59,7 +62,8 @@ const ASCII_FACES = [
                                                         ..:..:..%@*   ....                              
                                                                :%%-::.                                  
  
-  `
+  `,
+  // 您可以添加更多 ASCII 艺术字符串
 ];
 
 
@@ -106,10 +110,11 @@ const useChatManager = () => {
 
   const handleSend = async (input) => {
     if (!input.trim() || isLoading) return;
-    setIsLoading(true);
     
     const userMessage = { type: 'text', sender: 'user', content: input, id: `msg-user-${Date.now()}` };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prevMessages => [...prevMessages, userMessage]);
+    
+    setIsLoading(true);
 
     try {
       const response = await axios.post(CHAT_API_URL, { userId, message: input });
@@ -120,7 +125,8 @@ const useChatManager = () => {
         sender: 'lain',
         id: `msg-lain-${Date.now()}-${index}`
       }));
-      setMessages(prev => [...prev, ...formattedReplies]);
+      setMessages(prevMessages => [...prevMessages, ...formattedReplies]);
+
     } catch (error) {
       let errorMessage = '... connection failed ...';
       if (error.response) {
@@ -132,7 +138,7 @@ const useChatManager = () => {
       }
       console.error("❌ API请求失败:", error);
       const errorReply = { type: 'text', sender: 'lain', content: errorMessage, id: `msg-error-${Date.now()}` };
-      setMessages(prev => [...prev, errorReply]);
+      setMessages(prevMessages => [...prevMessages, errorReply]);
     } finally {
       setIsLoading(false);
     }
@@ -176,6 +182,7 @@ const useAmbientSound = () => {
 const EmergingText = ({ text }) => {
   const [displayedText, setDisplayedText] = useState('');
   useEffect(() => {
+    if (typeof text !== 'string') return;
     setDisplayedText('');
     let i = 0;
     const intervalId = setInterval(() => {
@@ -255,9 +262,9 @@ const ChatArea = ({ messages }) => {
     if(isNaN(msgDate)) return acc;
     
     const currentDate = msgDate.toLocaleDateString();
-    const prevMsg = acc.length > 0 ? acc[acc.length-1] : null;
+    const prevMsg = acc.findLast(m => m.id?.startsWith('msg-'));
     let prevDate = null;
-    if(prevMsg && prevMsg.id.startsWith('msg-')){
+    if(prevMsg){
         const prevMsgDate = new Date(parseInt(prevMsg.id.split('-')[1]));
         if(!isNaN(prevMsgDate)) prevDate = prevMsgDate.toLocaleDateString();
     }
@@ -304,8 +311,8 @@ const ChatArea = ({ messages }) => {
   return (
     <div ref={chatAreaRef} className="chat-area">
       {messagesWithDateSeparators.map((msg) => (
-        <div key={msg.id} className={`message-bubble-wrapper ${msg.type}`}>
-          <div className={`message-bubble ${msg.sender}`}>
+        <div key={msg.id} className={`message-bubble-wrapper ${msg.type === 'date_separator' ? 'separator-wrapper' : ''}`}>
+          <div className={`message-bubble ${msg.sender} ${msg.type}`}>
             {renderMessageContent(msg)}
           </div>
         </div>
@@ -317,8 +324,10 @@ const ChatArea = ({ messages }) => {
 const InputArea = ({ onSend, isLoading }) => {
   const [input, setInput] = useState('');
   const [history, setHistory] = useState(() => {
-    const saved = localStorage.getItem('lain_input_history');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('lain_input_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
   const [historyIndex, setHistoryIndex] = useState(-1);
 
@@ -422,6 +431,7 @@ export default function App() {
         .message-bubble { max-width: 70%; margin-bottom: 1.5rem; padding: 0.75rem 1rem; border: 1px solid var(--lain-accent); background: rgba(13, 13, 26, 0.5); backdrop-filter: blur(5px); animation: fadeIn 0.5s; }
         .message-bubble.user { align-self: flex-end; background: rgba(40, 40, 60, 0.2); border-color: #444; }
         .message-bubble.lain { align-self: flex-start; }
+        .message-bubble.date_separator { background: none; border: none; padding: 0; backdrop-filter: none; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .text-cursor { display: inline-block; width: 8px; height: 1em; background-color: var(--lain-text); animation: blink 1s step-end infinite; vertical-align: bottom; margin-left: 2px; }
         @keyframes blink { 50% { opacity: 0; } }
@@ -437,6 +447,14 @@ export default function App() {
         .log-line { font-size: 0.8rem; color: #888; white-space: pre; animation: log-fade-in 0.2s; }
         @keyframes log-fade-in { from { opacity: 0; } to { opacity: 1; } }
         .date-separator { width: fit-content; text-align: center; color: #555; font-size: 0.8rem; margin-bottom: 1rem; padding: 2px 8px; border: 1px solid #333; }
+        .spotify-card { display: flex; align-items: center; background: rgba(30, 215, 96, 0.05); border: 1px solid #1DB954; padding: 1rem; max-width: 320px; }
+        .album-art { width: 64px; height: 64px; margin-right: 1rem; flex-shrink: 0; }
+        .track-info { flex-grow: 1; min-width: 0; }
+        .track-name { font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .artist-name { font-size: 0.9rem; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .play-button { display: block; margin-top: 0.5rem; padding: 0.5rem; background-color: #1DB954; color: #fff; text-align: center; text-decoration: none; font-size: 0.8rem; font-weight: bold; border-radius: 20px; transition: background-color 0.2s; }
+        .play-button:hover { background-color: #1ed760; }
+        .audio-player audio { width: 100%; max-width: 280px; filter: invert(1) sepia(1) saturate(0.5) hue-rotate(200deg); }
         @media (max-width: 600px) { .chat-area { padding: 1rem; } .message-bubble { max-width: 85%; } .input-area { padding: 1rem; } .input-field { font-size: 1rem; } .send-button { font-size: 1rem; padding: 0.5rem 0.8rem; } }
       `}</style>
       
