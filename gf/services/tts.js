@@ -1,9 +1,6 @@
-// tts.js
 'use strict';
 const textToSpeech = require('@google-cloud/text-to-speech');
 const { Storage } = require('@google-cloud/storage');
-const util = require('util');
-const fs = require('fs');
 
 const ttsClient = new textToSpeech.TextToSpeechClient();
 const storage = new Storage();
@@ -19,13 +16,18 @@ async function synthesizeSpeech(text) {
     input: { text: text },
     voice: { 
       languageCode: 'ja-JP', 
-      name: 'ja-JP-Wavenet-B', // 一个冷静的日语女声作为替代
+      name: 'ja-JP-Wavenet-B',
       ssmlGender: 'FEMALE' 
     },
     audioConfig: { audioEncoding: 'MP3' },
   };
-  const [response] = await ttsClient.synthesizeSpeech(request);
-  return response.audioContent;
+  try {
+    const [response] = await ttsClient.synthesizeSpeech(request);
+    return response.audioContent;
+  } catch(err) {
+    console.error('❌ Google TTS API Error:', err);
+    throw err;
+  }
 }
 
 /**
@@ -35,15 +37,29 @@ async function synthesizeSpeech(text) {
  * @returns {Promise<string>} 公开可访问的 URL
  */
 async function uploadToStorage(audioBuffer, fileName) {
+  if (!bucketName) {
+    throw new Error('GCS_BUCKET_NAME is not configured in .env file.');
+  }
   const bucket = storage.bucket(bucketName);
   const file = bucket.file(fileName);
   
-  await file.save(audioBuffer, {
-    metadata: { contentType: 'audio/mp3' },
-    public: true,
-  });
+  try {
+    // ▼▼▼ 核心修正：移除 public: true 选项 ▼▼▼
+    await file.save(audioBuffer, {
+      metadata: { contentType: 'audio/mp3' },
+      // public: true, // <--- 移除此行
+    });
+    
+    // 手动将文件设置为公开可读，这是兼容“统一访问权限”的另一种方式
+    // 但最佳实践是在GCS控制台将整个桶设为公开
+    await file.makePublic();
 
-  return `https://storage.googleapis.com/${bucketName}/${fileName}`;
+    console.log(`[GCS] Audio file ${fileName} uploaded and made public.`);
+    return `https://storage.googleapis.com/${bucketName}/${fileName}`;
+  } catch(err) {
+    console.error('❌ GCS Upload Error:', err);
+    throw err;
+  }
 }
 
 module.exports = {
