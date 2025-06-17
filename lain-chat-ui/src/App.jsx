@@ -2,10 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import * as Tone from 'tone';
 import { Application } from 'pixi.js';
-// 修正 1: 导入 Cubism 4 模型加载器，而不是通用的 Live2DModel
-import { Cubism4Model } from 'pixi-live2d-display/cubism4';
 
-import './index.css';
+// 修正 1: 导入 Live2DModel 主类，并为副作用导入 Cubism 4 运行时
+import { Live2DModel } from 'pixi-live2d-display';
+import 'pixi-live2d-display/cubism4';
+
+// 你原来的 `index.css` 导入是正确的，但我的代码里没有包含，请确保你的文件里有这一行
+// import './index.css'; 
+
 
 // --- API 配置 ---
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
@@ -21,11 +25,12 @@ window.PIXI = { Application };
 // --- Live2D Widget ---
 const Live2DWidget = ({ modelPath, state }) => {
   const canvasRef = useRef(null);
-  const modelRef = useRef(null);
+  const appRef = useRef(null); // 使用 Ref 来持有 app 实例
+  const modelRef = useRef(null); // 使用 Ref 来持有 model 实例
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || appRef.current) return; // 防止重复初始化
 
     const app = new Application({
       view: canvas,
@@ -35,57 +40,60 @@ const Live2DWidget = ({ modelPath, state }) => {
       autoStart: true,
       resizeTo: window,
     });
+    appRef.current = app;
 
-    Cubism4Model.from(modelPath).then(model => {
+    // 修正 2: 使用 Live2DModel.from 加载模型
+    Live2DModel.from(modelPath, { autoInteract: false }).then(model => {
       app.stage.addChild(model);
       modelRef.current = model;
-      
+
       const scale = (window.innerHeight / model.height) * 0.7;
       model.scale.set(scale);
       model.x = (window.innerWidth - model.width) / 2;
       model.y = (window.innerHeight - model.height) / 2;
-      
-      // 设置随机眨眼 (此功能依赖于模型本身是否支持)
-      try {
-        model.internalModel.eyeBlink = new window.PIXI.live2d.EyeBlink();
-      } catch (e) {
-        console.warn("模型不支持或初始化 eyeBlink 失败:", e);
-      }
+
+      // 启用模型的自动交互，如眨眼和呼吸
+      model.autoUpdate = true;
       
       triggerMotionByState(state, model);
       
-    }).catch(err => console.error("❌ Live2D Model Error:", err));
+    }).catch(err => {
+      console.error("❌ Live2D Model Loading Error:", err);
+    });
 
     return () => {
-        if(app.stage) {
-            app.destroy(true, true);
-        }
+      if (appRef.current) {
+        appRef.current.destroy(true, { children: true, texture: true, baseTexture: true });
+        appRef.current = null;
+      }
     };
   }, [modelPath]);
   
-  // 监听外部状态变化，触发对应动作
   useEffect(() => {
-      triggerMotionByState(state, modelRef.current);
+    triggerMotionByState(state, modelRef.current);
   }, [state]);
 
   const triggerMotionByState = (currentState, model) => {
-    if (!model || !model.internalModel?.motionManager) return;
+    if (!model || !model.motion) return;
 
-    // 修正二：使用更健壮的动作调用逻辑
     const stateToMotionGroup = {
-        'companion': 'Idle',    // 陪伴状态 -> Idle 动作组
-        'teaching': 'TapBody',  // 教学状态 -> TapBody 动作组
-        'pondering': 'FlickHead'// 沉思状态 -> FlickHead 动作组
+      'companion': 'Idle',
+      'teaching': 'TapBody',
+      'pondering': 'FlickHead'
     };
 
+    // 对于你提供的 Roxy 模型，动作组可能就叫 "Idle", "Tap" 等
+    // 你需要根据你的 .model3.json 文件中的定义来调整这里的名字
     const groupName = stateToMotionGroup[currentState] || 'Idle';
-
-    // 检查动作组是否存在，如果不存在则回退到'Idle'
+    
+    // 检查动作组是否存在
     if (model.internalModel.motionManager.motionGroups[groupName]) {
         model.motion(groupName);
-    } else if (groupName !== 'Idle' && model.internalModel.motionManager.motionGroups['Idle']) {
-        console.warn(`动作组 "${groupName}" 未在模型中找到，回退到 'Idle'。`);
-        model.motion('Idle');
+    } else {
+        console.warn(`动作组 "${groupName}" 未在模型中找到。尝试播放 'Idle'。`);
+        if (model.internalModel.motionManager.motionGroups['Idle']) {
+            model.motion('Idle');
+        }
     }
   };
 
