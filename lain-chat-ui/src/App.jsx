@@ -4,6 +4,9 @@ import * as Tone from 'tone';
 import { Application } from 'pixi.js';
 import { Live2DModel } from 'pixi-live2d-display';
 
+// 引入统一的样式文件
+import './index.css';
+
 // --- API 配置 ---
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
 const CHAT_API_URL = `${API_ENDPOINT}/chat`;
