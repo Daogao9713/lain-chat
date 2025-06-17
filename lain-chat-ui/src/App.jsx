@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import * as Tone from 'tone';
 import { Application } from 'pixi.js';
-import { Live2DModel } from 'pixi-live2d-display';
+// 修正 1: 导入 Cubism 4 模型加载器，而不是通用的 Live2DModel
+import { Cubism4Model } from 'pixi-live2d-display/cubism4';
 
-// 引入统一的样式文件
 import './index.css';
 
 // --- API 配置 ---
@@ -36,10 +36,10 @@ const Live2DWidget = ({ modelPath, state }) => {
       resizeTo: window,
     });
 
-    Live2DModel.from(modelPath).then(model => {
+    Cubism4Model.from(modelPath).then(model => {
       app.stage.addChild(model);
       modelRef.current = model;
-
+      
       const scale = (window.innerHeight / model.height) * 0.7;
       model.scale.set(scale);
       model.x = (window.innerWidth - model.width) / 2;
