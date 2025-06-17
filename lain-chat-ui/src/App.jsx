@@ -1,93 +1,158 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import * as Tone from 'tone';
+import { Application } from 'pixi.js';
+import { Live2DModel } from 'pixi-live2d-display';
 
 // --- API 配置 ---
-// 核心修正：在 Vite 前端应用中，为了最大化兼容性，我们使用 Vite 推荐的 `import.meta.env` 写法。
-// Vercel 和现代构建工具会正确处理它。之前的警告是由于特定的目标环境配置，但Vercel通常会覆盖此设置。
-// 我们将保持这个标准写法，因为它是 Vite 的官方推荐。
 const API_ENDPOINT = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:3000';
 const CHAT_API_URL = `${API_ENDPOINT}/chat`;
 
-// --- ASCII 艺术头像定义 ---
-const ASCII_FACES = [
-  `
-                           .#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*.                       
-                      .#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+                       
-                      +@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@-                      
-                     :%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%.                     
-                    .#@@@@@@@@@@@@@@@@@@@@@@%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+                     
-                    =@@@@@@@@@@@@@@@@@@%++#==@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%.                    
-                   .#@@@@@@@@@@@@@@@@@@#    .%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@+                    
-                   :@@@@@@@@@@@@@@@@@@@*    .%@@@@@@@@@@%@@@@@@@@@@@@@@@@@@@@@@@@@@%.                   
-                   =@@@@@@@@@@@@@@@@@@@=    .%@@@@@@@@@%+@@@@@@@@@@@@@@@@@@@@@@@@@@@-                   
-                   #@@@@@@@@@@@@@@@@@@@=    .%@%@@@@@@@%-@@@@@@@@@@@@@@@@@@@@@@@@@@@+                   
-                  .%@@@@@@@@@@@@@@@@@@@=     %@+@@@@@@@#-@%@@@@@@%@@@@@@@@@@@@@@@@@@%                   
-                  -@@@@@@@@@@@@@@@@@@@@=     %@=@@@@@@@#:@*@@@@@%*@@@@@@@@@@@@@@@@@@%:                  
-                  +@@@@@@@@@@@@@@@@@@@@=     *%.%@@@@@@+:%+#@@@@#-@@@@@@@@@@@@@@@@@@@-                  
-                  #@@@@@@@@@@@@@@@@@@@@+     +# %@@@@@@=.%+*@@@@+:@@@@@@@@@@@@@@@@@@@-                  
-                 :%@@@@@@@@@@@@@@@@#@@@*     += #@@@@@@-:%-*@@@@*-#%@@@@@@@@@@@@@@@@@=                  
-                 -@@@@@@@@@@@@@@@@@-@@@+     +- =%@@@@@..%+#%@@%:.:=:=%@@@@@@@@@@@@@@=                  
-                 **@@@@@@@@@@@@@@@%-#@@#=-::.-. ==@@@@% .*.-==--. .   ++@@@@@@@@@@@@@+                  
-                .*=@@@@@@@@@@@%*@%*--##+.   ..  :.=+=*=  -     .....:.:=@@@@@@@@@@@@@=                  
-                :--@@@@@@@@@@@%-+%-:   .                   .-:=+=--+==++@@@@@@@@@@@@@=                  
-                - -@@@@@@@@@@@%: .....::::::.             .--**-:=- = :=@@@@@@@@@@*@@=                  
-                : :%@@@@@@@@@@%: .:-=+*--:==-.              :::- :..- .-@@@@@@@@@*-@@=                  
-               .. .%@@@@@@@@@@%: .+=.-::+=.++-                 .::::.--=@@@@@@@@@-=@@=                  
-                   %@@@@@@@@@@@=  .. .- . .-                  ..-:---. *@@@@@@@@*-%@@+                  
-                   +@@@@@%#%%@%#.  ::  :.....                         -#*@@@@@@%=%%=%*                  
-                   -@@@@@@+:.:*=-   .:---::.                         .*--#@@@#=-%@* -#.                 
-                   .#*@@@@-  .**:                                    -::%-=+++#@@@-  :-                 
-                   .= #@@@%:.:=+=                                    . -%+:=%@@@@%.                     
-                    . =@@@@%+:.:=-                                     -+%@*-*%@@*                      
-                      .@@#%@@%*: .:                                    =@@@@%=#@#=                      
-                      .*-.:%@@@@#+*:                 . .               %@@@@@@@%::                      
-                       -.  =%@@@@@@%:                                 -@@@@@@*++                        
-                           .+@@@@@@@%=               ..::.           .#@@@@@@: .                        
-                            .%@@*@#%@@*:             ..             =%@@@@@@%.                          
-                             +%=:+==@@@@*-                        -#@#@@@@@@*.                          
-                             .-  ...**@@@@%=:                    .#@+#@@@@@%:                           
-                              .     ..%#+%@@@#+-.                -#-:@@@@@@+                            
-                                      .. ..-=::-*#*=:.   .:=-.   =. *@@@@@%.                            
-                                             .   .-*%%%%#*=.     . .%@@@@%-                             
-                                                    .:--.          +@@@@@=.                             
-                                                                  :%@@@@*.                              
-                                                                  =@@@@#.                               
-                                                                 .#@@@%:                                
-                                                                 -@@@%-                                 
-                                   ......                        *@@@=                                  
-                                  ..   .....                     %@@*.                                  
-                                  ....      .......             -@@%:.                                  
-                                                   :.:....    . *@@-  ......                            
-                                                        ..:..:..%@*   ....                              
-                                                               :%%-::.                                  
- 
-  `,
-  // 您可以添加更多 ASCII 艺术字符串
-];
-
+// 将 PIXI 暴露到全局，这是 Live2D 库所需要的
+window.PIXI = { Application };
 
 // =================================================================
-//  优化一：代码结构 - 自定义Hooks (Custom Hooks)
+//  子组件 (Components)
 // =================================================================
 
-/**
- * Hook: 管理聊天核心逻辑 (状态、历史记录、API请求)
- */
-const useChatManager = () => {
-  const [messages, setMessages] = useState(() => {
-    try {
-      const savedMessages = localStorage.getItem('lain_chat_history');
-      const parsed = savedMessages ? JSON.parse(savedMessages) : [];
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [{ type: 'text', sender: 'lain', content: '... a new connection.', id: `lain-msg-${Date.now()}` }];
-    } catch (error) {
-      return [{ type: 'text', sender: 'lain', content: '... memory error ...', id: `error-msg-${Date.now()}` }];
+// --- Live2D Widget ---
+const Live2DWidget = ({ modelPath, state }) => {
+  const canvasRef = useRef(null);
+  const modelRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const app = new Application({
+      view: canvas,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      backgroundAlpha: 0,
+      autoStart: true,
+      resizeTo: window,
+    });
+
+    Live2DModel.from(modelPath).then(model => {
+      app.stage.addChild(model);
+      modelRef.current = model;
+
+      const scale = (window.innerHeight / model.height) * 0.7;
+      model.scale.set(scale);
+      model.x = (window.innerWidth - model.width) / 2;
+      model.y = (window.innerHeight - model.height) / 2;
+      
+      // 设置随机眨眼 (此功能依赖于模型本身是否支持)
+      try {
+        model.internalModel.eyeBlink = new window.PIXI.live2d.EyeBlink();
+      } catch (e) {
+        console.warn("模型不支持或初始化 eyeBlink 失败:", e);
+      }
+      
+      triggerMotionByState(state, model);
+      
+    }).catch(err => console.error("❌ Live2D Model Error:", err));
+
+    return () => {
+        if(app.stage) {
+            app.destroy(true, true);
+        }
+    };
+  }, [modelPath]);
+  
+  // 监听外部状态变化，触发对应动作
+  useEffect(() => {
+      triggerMotionByState(state, modelRef.current);
+  }, [state]);
+
+  const triggerMotionByState = (currentState, model) => {
+    if (!model || !model.internalModel?.motionManager) return;
+
+    // 修正二：使用更健壮的动作调用逻辑
+    const stateToMotionGroup = {
+        'companion': 'Idle',    // 陪伴状态 -> Idle 动作组
+        'teaching': 'TapBody',  // 教学状态 -> TapBody 动作组
+        'pondering': 'FlickHead'// 沉思状态 -> FlickHead 动作组
+    };
+
+    const groupName = stateToMotionGroup[currentState] || 'Idle';
+
+    // 检查动作组是否存在，如果不存在则回退到'Idle'
+    if (model.internalModel.motionManager.motionGroups[groupName]) {
+        model.motion(groupName);
+    } else if (groupName !== 'Idle' && model.internalModel.motionManager.motionGroups['Idle']) {
+        console.warn(`动作组 "${groupName}" 未在模型中找到，回退到 'Idle'。`);
+        model.motion('Idle');
     }
-  });
+  };
 
+  return <canvas ref={canvasRef} className="live2d-canvas" />;
+};
+
+
+// --- 魔法粒子背景 ---
+const MagicBackground = () => {
+    const canvasRef = useRef(null);
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let animationFrameId;
+        const resizeCanvas = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        };
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        const runes = 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ';
+        const particles = Array.from({length: 100}, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            char: runes[Math.floor(Math.random() * runes.length)],
+            speed: Math.random() * 0.5 + 0.2,
+            size: Math.random() * 12 + 8,
+            opacity: Math.random() * 0.3 + 0.1
+        }));
+        
+        const render = () => {
+            if(!ctx) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                ctx.fillStyle = `rgba(192, 192, 220, ${p.opacity})`;
+                ctx.font = `${p.size}px monospace`;
+                ctx.fillText(p.char, p.x, p.y);
+                p.y -= p.speed;
+                if (p.y < 0) {
+                    p.y = canvas.height;
+                    p.x = Math.random() * canvas.width;
+                }
+            });
+            animationFrameId = requestAnimationFrame(render);
+        };
+        render();
+
+        return () => {
+            window.removeEventListener('resize', resizeCanvas);
+            cancelAnimationFrame(animationFrameId);
+        }
+    }, []);
+    return <canvas ref={canvasRef} className="magic-background-canvas" />;
+};
+
+
+// --- 主应用组件 ---
+export default function App() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userId, setUserId] = useState('');
+  const [roxyState, setRoxyState] = useState('companion');
+  const audioInitialized = useRef(false);
+  const chatEndRef = useRef(null); // 用于滚动到底部
+  const chatAreaRef = useRef(null); // 修正一：为聊天区域声明 ref
 
+  // 初始化
   useEffect(() => {
     let storedUserId = localStorage.getItem('lain_user_id');
     if (!storedUserId) {
@@ -95,362 +160,171 @@ const useChatManager = () => {
       localStorage.setItem('lain_user_id', storedUserId);
     }
     setUserId(storedUserId);
+    setMessages([{ type: 'text', sender: 'roxy', content: '...你好，初次见面。我是洛琪希。', id: `msg-${Date.now()}` }]);
   }, []);
 
+  // 自动滚动
   useEffect(() => {
-    try {
-      if (messages.length > 0) {
-        localStorage.setItem('lain_chat_history', JSON.stringify(messages));
-      }
-    } catch (error) {
-      console.error("Failed to save chat history:", error);
-    }
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = async (input) => {
-    if (!input.trim() || isLoading) return;
+  // 启动环境音
+  const startAudio = async () => {
+    if (audioInitialized.current) return;
+    try {
+      await Tone.start();
+      const reverb = new Tone.Reverb(2).toDestination();
+      const synth = new Tone.PolySynth(Tone.Synth).connect(reverb);
+      synth.volume.value = -20;
+      const notes = ["C4", "E4", "G4", "A4"];
+      const loop = new Tone.Loop(time => {
+          synth.triggerAttackRelease(notes[Math.floor(Math.random() * notes.length)], "4n", time);
+      }, "2m").start(0);
+      loop.humanize = true;
+      Tone.Transport.start();
+      audioInitialized.current = true;
+      console.log("Magic ambient sound started.");
+    } catch(e) {
+      console.error("Failed to start audio:", e);
+    }
+  };
 
-    // 1. 立即创建并显示用户消息
-    const userMessage = { type: 'text', sender: 'user', content: input, id: `user-msg-${Date.now()}` };
-    setMessages(prevMessages => [...prevMessages, userMessage]);
-    
+  // 发送消息
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+    startAudio();
+
+    const userMessage = { type: 'text', sender: 'user', content: input, id: `msg-user-${Date.now()}` };
+    setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
+    setInput('');
     setIsLoading(true);
 
     try {
-      // 2. 发送API请求
-      const response = await axios.post(CHAT_API_URL, { userId, message: input });
+      setMessages(prev => [...prev, {type: 'casting_animation', id: `cast-${Date.now()}`}]);
+      await new Promise(res => setTimeout(res, 2000));
+
+      const response = await axios.post(CHAT_API_URL, { userId, message: currentInput });
       const repliesFromServer = Array.isArray(response.data.replies) ? response.data.replies : [];
-      
-      // 3. 将AI的回复添加到UI
       const formattedReplies = repliesFromServer.map((reply, index) => ({
         ...reply,
-        sender: 'lain',
-        id: `lain-msg-${Date.now()}-${index}`
+        sender: 'roxy',
+        id: `msg-roxy-${Date.now()}-${index}`
       }));
-      setMessages(prevMessages => [...prevMessages, ...formattedReplies]);
+      
+      setMessages(prev => [...prev.slice(0, -1), ...formattedReplies]);
 
     } catch (error) {
-      let errorMessage = '... connection failed ...';
-      if (error.response) { errorMessage = `[${error.response.status}] ${error.response.data?.error || 'Server Error'}`; }
-      else if (error.request) { errorMessage = '... no signal from the Wired. (Network Error)'; }
-      else { errorMessage = `... a bug in the system. (${error.message})`; }
-      
       console.error("❌ API请求失败:", error);
-      const errorReply = { type: 'text', sender: 'lain', content: errorMessage, id: `error-msg-${Date.now()}` };
-      setMessages(prevMessages => [...prevMessages, errorReply]);
+      const errorReply = { type: 'text', sender: 'roxy', content: '...魔力连接中断了...', id: `msg-error-${Date.now()}` };
+      setMessages(prev => [...prev.slice(0, -1), errorReply]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  return { messages, isLoading, handleSend };
-};
+  const handleKeyPress = (e) => {
+      if (e.key === 'Enter' && !isLoading) handleSend();
+  }
 
-/**
- * Hook: 管理环境音
- */
-const useAmbientSound = () => {
-  const audioInitialized = useRef(false);
-  const startAudio = async () => {
-    if (audioInitialized.current) return;
-    try {
-      await Tone.start();
-      const hum = new Tone.Oscillator(50, "sine").toDestination();
-      hum.volume.value = -35;
-      hum.start();
-      const noise = new Tone.Noise("white").toDestination();
-      noise.volume.value = -45;
-      const filter = new Tone.AutoFilter("4n").toDestination().start();
-      noise.connect(filter);
-      noise.start();
-      Tone.Transport.start();
-      audioInitialized.current = true;
-      console.log("Ambient sound started.");
-    } catch(e) {
-      console.error("Failed to start audio:", e);
-    }
-  };
-  return startAudio;
-};
-
-
-// =================================================================
-//  优化一：代码结构 - 子组件 (Components)
-// =================================================================
-
-const EmergingText = ({ text }) => {
-  const [displayedText, setDisplayedText] = useState('');
-  useEffect(() => {
-    if (typeof text !== 'string') return;
-    setDisplayedText('');
-    let i = 0;
-    const intervalId = setInterval(() => {
-      if (i < text.length) {
-        setDisplayedText(prev => prev + text.charAt(i));
-        i++;
-      } else {
-        clearInterval(intervalId);
-      }
-    }, 30);
-    return () => clearInterval(intervalId);
-  }, [text]);
-  return <p style={{ margin: 0 }}>{displayedText}<span className="text-cursor"></span></p>;
-};
-
-const ToolCallVisualizer = ({ toolCall }) => {
-  const functionName = toolCall?.function?.name || 'unknown_function';
-  const lines = [`> boot(tool:${functionName})...`];
-  return (
-    <div className="tool-call-visualizer">
-        {lines.map((log, i) => <div key={i} className="log-line">{log}</div>)}
-    </div>
-  );
-};
-
-const SpotifyCard = ({ track }) => (
-  <div className="spotify-card">
-    <img src={track.albumArt} alt={track.name} className="album-art" />
-    <div className="track-info">
-      <div className="track-name">{track.name}</div>
-      <div className="artist-name">{track.artist}</div>
-      <a href={track.url} target="_blank" rel="noopener noreferrer" className="play-button">
-        CONNECT ON SPOTIFY
-      </a>
-    </div>
-  </div>
-);
-
-const AudioPlayer = ({ audio }) => (
-  <div className="audio-player">
-    <audio controls controlsList="nodownload noplaybackrate" src={audio.url}>
-      Your browser does not support the audio element.
-    </audio>
-  </div>
-);
-
-const AsciiArt = () => {
-  const [asciiFace, setAsciiFace] = useState(ASCII_FACES[0]);
-  const [isBlinking, setIsBlinking] = useState(false);
-  useEffect(() => {
-    const faceInterval = setInterval(() => {
-        setIsBlinking(true);
-        setTimeout(() => setIsBlinking(false), 150);
-        if (Math.random() < 0.15) {
-            setAsciiFace(prev => {
-                let newIndex;
-                do { newIndex = Math.floor(Math.random() * ASCII_FACES.length); }
-                while (ASCII_FACES[newIndex] === prev && ASCII_FACES.length > 1);
-                return ASCII_FACES[newIndex];
-            });
-        }
-    }, 4000);
-    return () => clearInterval(faceInterval);
-  }, []);
-
-  return <div className={`ascii-art-container ${isBlinking ? 'blinking' : ''}`}>{asciiFace}</div>;
-};
-
-const ChatArea = ({ messages }) => {
-  const chatAreaRef = useRef(null);
-  
-  const messagesWithDateSeparators = messages.reduce((acc, msg, index) => {
-    if (!msg || typeof msg.id !== 'string') return acc;
-    const parts = msg.id.split('-');
-    const timestamp = parseInt(parts[parts.length - 1]);
-    if (isNaN(timestamp)) return acc;
-    const currentDate = new Date(timestamp).toLocaleDateString();
-    const prevDate = index > 0 ? new Date(parseInt(messages[index - 1].id.split('-').pop())).toLocaleDateString() : null;
-    if (currentDate !== prevDate) {
-      acc.push({ type: 'date_separator', content: currentDate, id: `date-${currentDate}` });
-    }
-    acc.push(msg);
-    return acc;
-  }, []);
-
-  useEffect(() => {
-    const chatArea = chatAreaRef.current;
-    if (!chatArea) return;
-    chatArea.scrollTop = chatArea.scrollHeight;
-    const handleScroll = () => {
-      const messageNodes = Array.from(chatArea.children);
-      const viewHeight = chatArea.clientHeight;
-      for (let i = 0; i < messageNodes.length - 5; i++) {
-        if (messageNodes[i].classList.contains('message-bubble-wrapper')) {
-            const msgTop = messageNodes[i].getBoundingClientRect().top;
-            const blurAmount = Math.max(0, 1 - (msgTop / viewHeight) * 1.2);
-            messageNodes[i].style.filter = `blur(${blurAmount * 2}px)`;
-            messageNodes[i].style.opacity = `${1 - blurAmount * 0.7}`;
-        }
-      }
-    };
-    chatArea.addEventListener('scroll', handleScroll);
-    handleScroll();
-    return () => chatArea.removeEventListener('scroll', handleScroll);
-  }, [messages]);
-
+  // 渲染不同消息
   const renderMessageContent = (msg) => {
-    if (!msg) return null;
-    if (msg.type === 'date_separator') return <div className="date-separator">{msg.content}</div>;
-    if (msg.type === 'spotify') return <SpotifyCard track={msg.content} />;
-    if (msg.type === 'audio') return <AudioPlayer audio={msg.content} />;
-    if (msg.type === 'tool_start') return <ToolCallVisualizer toolCall={msg.content} />;
-    return msg.sender === 'user' 
-      ? <p style={{ margin: 0 }}>{msg.content}</p> 
-      : <EmergingText text={msg.content} />;
-  };
-  
-  return (
-    <div ref={chatAreaRef} className="chat-area">
-      {messagesWithDateSeparators.map((msg) => (
-        <div key={msg.id} className={`message-bubble-wrapper ${msg.type}`}>
-          {renderMessageContent(msg)}
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const InputArea = ({ onSend, isLoading }) => {
-  const [input, setInput] = useState('');
-  const [history, setHistory] = useState(() => {
-    try {
-      const saved = localStorage.getItem('lain_input_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
-  const [historyIndex, setHistoryIndex] = useState(-1);
-
-  const handleSendClick = () => {
-    const trimmedInput = input.trim();
-    if (!trimmedInput) return;
-    onSend(trimmedInput);
-    if (!history.includes(trimmedInput)) {
-      const newHistory = [trimmedInput, ...history].slice(0, 20);
-      setHistory(newHistory);
-      localStorage.setItem('lain_input_history', JSON.stringify(newHistory));
+    if (msg.type === 'casting_animation') {
+      return <div className="casting-effect"><span>.</span><span>.</span><span>.</span></div>;
     }
-    setHistoryIndex(-1);
-    setInput('');
+    return <p style={{ margin: 0 }}>{msg.content}</p>;
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (historyIndex < history.length - 1) {
-        const newIndex = historyIndex + 1;
-        setHistoryIndex(newIndex);
-        setInput(history[newIndex]);
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        const newIndex = historyIndex - 1;
-        setHistoryIndex(newIndex);
-        setInput(history[newIndex]);
-      } else {
-        setHistoryIndex(-1); setInput('');
-      }
-    } else if (e.key === 'Enter' && !isLoading) {
-      handleSendClick();
-    }
+  const handleStateChange = () => {
+      const states = ['companion', 'teaching', 'pondering'];
+      const currentIndex = states.indexOf(roxyState);
+      const nextIndex = (currentIndex + 1) % states.length;
+      setRoxyState(states[nextIndex]);
   };
-
-  return (
-    <div className="input-area">
-        <span style={{ color: 'var(--lain-accent)', fontSize: '1.2rem', alignSelf: 'center' }}>&gt;&nbsp;</span>
-        <div className="input-field-wrapper">
-            <input
-              type="text" className="input-field"
-              value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="..." disabled={isLoading}
-            />
-            {isLoading && <div className="scanline"></div>}
-        </div>
-        <button className="send-button" onClick={handleSendClick} disabled={!input.trim() || isLoading}>SEND</button>
-    </div>
-  );
-};
-
-// --- 主应用组件 ---
-export default function App() {
-  const { messages, isLoading, handleSend } = useChatManager();
-  const startAudio = useAmbientSound();
-  const mainContainerRef = useRef(null);
-
-  useEffect(() => {
-    const mainContainer = mainContainerRef.current;
-    if (!mainContainer) return;
-    const setRealViewportHeight = () => {
-      mainContainer.style.height = `${window.innerHeight}px`;
-    };
-    setRealViewportHeight();
-    window.addEventListener('resize', setRealViewportHeight);
-    return () => window.removeEventListener('resize', setRealViewportHeight);
-  }, []);
-  
-  useEffect(() => {
-      const handleFirstInteraction = () => {
-        startAudio();
-        window.removeEventListener('click', handleFirstInteraction);
-        window.removeEventListener('keydown', handleFirstInteraction);
-      };
-      window.addEventListener('click', handleFirstInteraction);
-      window.addEventListener('keydown', handleFirstInteraction);
-      return () => {
-          window.removeEventListener('click', handleFirstInteraction);
-          window.removeEventListener('keydown', handleFirstInteraction);
-      };
-  }, [startAudio]);
 
   return (
     <>
       <style>{`
-        /* --- 所有 "Lain风格" CSS 代码保持不变 --- */
-        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-        :root { --lain-bg: #0a0a0f; --lain-text: #b3b3cc; --lain-accent: #6c5c98; --lain-glow: rgba(140, 115, 255, 0.3); }
-        body { background-color: var(--lain-bg); color: var(--lain-text); font-family: 'VT323', monospace; margin: 0; overflow: hidden; }
-        .main-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; position: relative; backdrop-filter: blur(1px); }
-        .ascii-art-container { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: -1; opacity: 0.08; font-size: 1vw; line-height: 0.8; white-space: pre; color: var(--lain-accent); animation: glitch 15s linear infinite alternate; transition: opacity 0.5s; pointer-events: none;}
-        .ascii-art-container.blinking { opacity: 0.04; transform: translate(-50%, -50%) scale(1.005); }
-        @keyframes glitch { 0%, 100% { text-shadow: 1px 1px #ff00ff, -1px -1px #00ffff; } 49.9% { text-shadow: 1px 1px #ff00ff, -1px -1px #00ffff; } 50% { text-shadow: -1px 1px #ff00ff, 1px -1px #00ffff; } }
-        .chat-area { flex-grow: 1; overflow-y: auto; padding: 2rem; }
-        .message-bubble-wrapper { display: flex; flex-direction: column; }
-        .message-bubble-wrapper.date_separator { align-items: center; }
-        .message-bubble { max-width: 70%; margin-bottom: 1.5rem; padding: 0.75rem 1rem; border: 1px solid var(--lain-accent); background: rgba(13, 13, 26, 0.5); backdrop-filter: blur(5px); animation: fadeIn 0.5s; }
-        .message-bubble.user { align-self: flex-end; background: rgba(40, 40, 60, 0.2); border-color: #444; }
-        .message-bubble.lain { align-self: flex-start; }
-        .message-bubble.date_separator { background: none; border: none; padding: 0; backdrop-filter: none; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .text-cursor { display: inline-block; width: 8px; height: 1em; background-color: var(--lain-text); animation: blink 1s step-end infinite; vertical-align: bottom; margin-left: 2px; }
-        @keyframes blink { 50% { opacity: 0; } }
-        .input-area { display: flex; padding: 1.5rem; border-top: 1px solid var(--lain-accent); box-shadow: 0 -5px 25px var(--lain-glow); background: var(--lain-bg); z-index: 10; align-items: center; }
-        .input-field-wrapper { flex-grow: 1; position: relative; }
-        .input-field { width: 100%; background: transparent; border: none; color: var(--lain-text); font-family: inherit; font-size: 1.2rem; padding: 0.5rem; }
-        .input-field:focus { outline: none; }
-        .scanline { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: var(--lain-accent); opacity: 0.6; animation: scan 2s linear infinite; pointer-events: none; }
-        @keyframes scan { 0% { transform: translateY(-10px); } 50% { transform: translateY(calc(100% + 10px)); } 100% { transform: translateY(-10px); } }
-        .send-button { background: transparent; border: 1px solid var(--lain-accent); color: var(--lain-text); font-family: inherit; font-size: 1.2rem; margin-left: 1rem; padding: 0.5rem 1rem; cursor: pointer; transition: background-color 0.3s; }
-        .send-button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .tool-call-visualizer { border: 1px dashed #555; padding: 0.5rem; }
-        .log-line { font-size: 0.8rem; color: #888; white-space: pre; animation: log-fade-in 0.2s; }
-        @keyframes log-fade-in { from { opacity: 0; } to { opacity: 1; } }
-        .date-separator { width: fit-content; text-align: center; color: #555; font-size: 0.8rem; margin-bottom: 1rem; padding: 2px 8px; border: 1px solid #333; }
-        .spotify-card { display: flex; align-items: center; background: rgba(30, 215, 96, 0.05); border: 1px solid #1DB954; padding: 1rem; max-width: 320px; }
-        .album-art { width: 64px; height: 64px; margin-right: 1rem; flex-shrink: 0; }
-        .track-info { flex-grow: 1; min-width: 0; }
-        .track-name { font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .artist-name { font-size: 0.9rem; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .play-button { display: block; margin-top: 0.5rem; padding: 0.5rem; background-color: #1DB954; color: #fff; text-align: center; text-decoration: none; font-size: 0.8rem; font-weight: bold; border-radius: 20px; transition: background-color 0.2s; }
-        .play-button:hover { background-color: #1ed760; }
-        .audio-player audio { width: 100%; max-width: 280px; filter: invert(1) sepia(1) saturate(0.5) hue-rotate(200deg); }
-        @media (max-width: 600px) { .chat-area { padding: 1rem; } .message-bubble { max-width: 85%; } .input-area { padding: 1rem; } .input-field { font-size: 1rem; } .send-button { font-size: 1rem; padding: 0.5rem 0.8rem; } }
+        /* 性能建议：为了获得最佳性能，@import 规则应放在全局CSS文件（如 index.css）的顶部 */
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
+        :root {
+          --roxy-bg: #121828;
+          --roxy-text: #e0e0f0;
+          --roxy-blue: #7d97e8;
+          --roxy-silver: #c0c0d0;
+          --roxy-glow: rgba(125, 151, 232, 0.5);
+        }
+        body { background-color: var(--roxy-bg); color: var(--roxy-text); font-family: 'Cinzel', serif; margin: 0; overflow: hidden; }
+
+        .magic-background-canvas { position: fixed; top: 0; left: 0; z-index: 1; opacity: 0.3; }
+        .live2d-canvas { position: fixed; top: 0; left: 0; z-index: 2; width: 100% !important; height: 100% !important; }
+
+        .chat-container {
+          position: fixed; bottom: 20px; right: 20px;
+          width: 400px; max-width: 90vw; height: 60vh;
+          background: rgba(18, 24, 40, 0.8);
+          border: 1px solid var(--roxy-blue);
+          box-shadow: 0 0 20px var(--roxy-glow);
+          border-radius: 10px;
+          display: flex; flex-direction: column;
+          backdrop-filter: blur(5px);
+          z-index: 3;
+        }
+
+        .chat-area { flex-grow: 1; overflow-y: auto; padding: 1rem; }
+        .message-bubble { margin-bottom: 1rem; padding: 0.7rem 1rem; border-radius: 8px; max-width: 80%; line-height: 1.6; }
+        .message-bubble.roxy { background: rgba(125, 151, 232, 0.1); align-self: flex-start; }
+        .message-bubble.user { background: rgba(192, 192, 208, 0.1); align-self: flex-end; }
+
+        .input-area { padding: 1rem; border-top: 1px solid var(--roxy-blue); display: flex; }
+        .input-field { flex-grow: 1; background: transparent; border: none; border-bottom: 1px solid var(--roxy-silver); color: var(--roxy-text); font-family: inherit; font-size: 1rem; padding: 0.5rem; }
+        .input-field:focus { outline: none; border-bottom-color: var(--roxy-blue); }
+        .send-button { background: var(--roxy-blue); color: var(--roxy-bg); border: none; border-radius: 5px; margin-left: 0.5rem; padding: 0.5rem 1rem; cursor: pointer; }
+
+        .mode-switcher {
+          position: fixed; top: 20px; left: 20px; z-index: 4;
+          background: rgba(18, 24, 40, 0.8); border: 1px solid var(--roxy-blue);
+          padding: 0.5rem 1rem; border-radius: 5px; cursor: pointer;
+          text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;
+        }
+        .mode-switcher:hover { box-shadow: 0 0 10px var(--roxy-glow); }
+        
+        .casting-effect span { display: inline-block; animation: bounce 1.4s infinite; }
+        .casting-effect span:nth-child(2) { animation-delay: 0.2s; }
+        .casting-effect span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
       `}</style>
       
-      <div ref={mainContainerRef} className="main-container">
-        <AsciiArt />
-        <ChatArea messages={messages} />
-        <InputArea onSend={handleSend} isLoading={isLoading} />
+      <MagicBackground />
+      <Live2DWidget modelPath="/live2d/Hiyori/Hiyori.model3.json" state={roxyState} />
+      
+      <div className="mode-switcher" onClick={handleStateChange}>
+        Mode: {roxyState}
+      </div>
+
+      <div className="chat-container">
+        <div ref={chatAreaRef} className="chat-area">
+            {messages.map((msg, index) => (
+                <div key={msg.id || index} className={`message-bubble ${msg.sender}`}>
+                    {renderMessageContent(msg)}
+                </div>
+            ))}
+            <div ref={chatEndRef}></div>
+        </div>
+        <div className="input-area">
+          <input
+            type="text"
+            className="input-field"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="输入咒文..."
+            disabled={isLoading}
+          />
+          <button className="send-button" onClick={handleSend} disabled={!input.trim() || isLoading}>
+            传送
+          </button>
+        </div>
       </div>
     </>
   );
